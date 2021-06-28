@@ -1,0 +1,170 @@
+---
+title: "FitBit Fitness Tracker Simple Analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+The FitBit Fitness Tracker Data, downloaded from Kaggle, contains personal fitness tracker from thirty fitbit users. Thirty eligible Fitbit users consented to the submission of personal tracker data, including minute-level output for physical activity, heart rate, and sleep monitoring. It includes information about daily activity, steps, and heart rate that can be used to explore users’ habits. This dataset was made available by Mobius.
+
+This analysis is my first using RStudio. I will graphically present relationships in the data. 
+
+### Part I: Import Data
+
+I am using the tidyverse library. This library includes ggplot2, dplyr, tidyr, readr, tibble.
+
+```{r load tidyverse}
+library("tidyverse")
+```
+
+
+```{r import}
+dailyActivity <- read.csv("/Users/jasonwerenski/Documents/repo/fitbit/Fitabase Data 4.12.16-5.12.16/dailyActivity_merged.csv")
+heartRateSeconds <- read.csv("/Users/jasonwerenski/Documents/repo/fitbit/Fitabase Data 4.12.16-5.12.16/heartrate_seconds_merged.csv")
+hourlyCalories <- read.csv("/Users/jasonwerenski/Documents/repo/fitbit/Fitabase Data 4.12.16-5.12.16/hourlyCalories_merged.csv")
+hourlyIntensities <- read.csv("/Users/jasonwerenski/Documents/repo/fitbit/Fitabase Data 4.12.16-5.12.16/hourlyIntensities_merged.csv")
+sleepDay <- read.csv("/Users/jasonwerenski/Documents/repo/fitbit/Fitabase Data 4.12.16-5.12.16/sleepDay_merged.csv")
+weightLog <- read.csv("/Users/jasonwerenski/Documents/repo/fitbit/Fitabase Data 4.12.16-5.12.16/weightLogInfo_merged.csv")
+```
+
+Next, I want to see how many individuals there are for each imported dataframe. To do this, I use the n_distinct() function.
+
+```{r n distinct}
+sprintf("Daily Activity Unique Individuals: %i", n_distinct(dailyActivity$Id))
+sprintf("Heart Rate Seconds Unique Individuals: %i", n_distinct(heartRateSeconds$Id))
+sprintf("Hourly Calories Unique Individuals: %i", n_distinct(hourlyCalories$Id))
+sprintf("Hourly Intensities Unique Individuals: %i", n_distinct(hourlyIntensities$Id))
+sprintf("Sleep Days Unique Individuals: %i", n_distinct(sleepDay$Id))
+sprintf("Weight Log Unique Individuals: %i", n_distinct(weightLog$Id))
+
+```
+
+
+### Part II: Data Frame Modifications
+
+#### Daily Activity Data Frame Modifications (dailyActivity)
+I modified the 'ActivityDate' column by converting the chr type to POSIXct type. I then add another column which is the sum of the activity minutes columns. activity columns should add to 1440 for each observation, but that is not the case all of the time. The column title is 'TotalActivityMinutes'.
+
+```{r dailyActivity}
+dailyActivity$ActivityDate <- as.Date(dailyActivity$ActivityDate, format = '%m/%d/%Y')
+dailyActivity <- dailyActivity %>% 
+  mutate(TotalActivityMinutes = dailyActivity$FairlyActiveMinutes+ dailyActivity$FairlyActiveMinutes +        dailyActivity$LightlyActiveMinutes+dailyActivity$SedentaryMinutes)
+```
+
+#### Heart Rate Seconds Date Frame Modifications (heartRateSeconds)
+I modified the 'Time' column by converted the chr type to POSIXct type.
+
+```{r heartRateSeconds}
+heartRateSeconds$Time <- as.POSIXct(heartRateSeconds$Time, format = "%m/%d/%Y %H:%M:%S")
+```
+
+#### Hourly Intensities Data Frame Modifications (hourlyIntensities)
+I added a 'Hour' column to represent the hour in miltary time instead of the 12-hour cycle. I then removed unnecessary columns from the dataframe.
+
+```{r hourlyIntensities}
+hourlyIntensities <- hourlyIntensities %>%
+  separate(ActivityHour, into = c('Date', 'Time', 'AM_PM'), sep = ' ') %>%
+  separate(Time, into = c('Hr', 'Min', 'Sec'), sep = ':')
+
+hourlyIntensities$Hr <- as.numeric(hourlyIntensities$Hr)
+  
+hourlyIntensities <- hourlyIntensities %>%
+  mutate(Hour = case_when(hourlyIntensities$`AM_PM` == 'AM' ~ hourlyIntensities$Hr, TRUE ~ hourlyIntensities$Hr + 12))
+
+hourlyIntensities$Hour[hourlyIntensities$Hour == 12] <- 0
+hourlyIntensities$Hour[hourlyIntensities$Hour == 24] <- 12
+
+hourlyIntensities <- subset(hourlyIntensities, select = -c(Hr, Min, Sec, AM_PM))
+```
+
+#### Hourly Calories Data Frame Modifications (hourlyCalories)
+I added a 'Hour' column to represent the hour in miltary time instead of the 12-hour cycle. I then removed unnecessary columns from the dataframe.
+
+```{r hourlyCalories}
+hourlyCalories <- hourlyCalories %>%
+  separate(ActivityHour, into = c('Date', 'Time', 'AM_PM'), sep = ' ') %>%
+  separate(Time, into = c('Hr', 'Min', 'Sec'), sep = ':')
+
+hourlyCalories$Hr <- as.numeric(hourlyCalories$Hr)
+
+hourlyCalories <- hourlyCalories %>%
+  mutate(Hour = case_when(hourlyCalories$`AM_PM` == 'AM' ~ hourlyCalories$Hr, TRUE ~ hourlyCalories$Hr + 12))
+
+hourlyCalories$Hour[hourlyCalories$Hour == 12] <- 0
+hourlyCalories$Hour[hourlyCalories$Hour == 24] <- 12
+
+hourlyCalories <- subset(hourlyCalories, select = -c(Hr, Min, Sec, AM_PM))
+```
+
+#### Sleep Day Data Frame Modifications (sleepDay)
+I modified the SleepDay column by converted the chr type to POSIXct type.
+
+```{r sleepDay}
+sleepDay$SleepDay <- as.POSIXct(sleepDay$SleepDay, format = "%m/%d/%Y %H:%M:%S")
+```
+
+
+#### Weight Log Data Frame Modification (weightLog)
+I modified the data frame by separating the 'Date' column into only a 'Date' column and only a 'Time' column.I then added a 'BMI_classification' column to classify each observation's BMI.
+
+```{r weightLog}
+weightLog <- weightLog %>%
+  separate(Date, into = c('Date', 'Time'), sep = ' ') %>%
+  mutate(BMI_classification = case_when(
+          BMI <= 18.5 ~ 'Underweight',
+          BMI > 18.5 && BMI <= 25 ~ 'HealthyWeight',
+          BMI > 25 && BMI <= 30 ~ 'Overweight',
+          BMI > 30 ~ 'Obese'))
+
+weightLog$Date <- as.POSIXct(weightLog$Date, format = "%m/%d/%Y")
+weightLog <- subset(weightLog, select = -c(Time, WeightKg, Fat, LogId))
+```
+
+```{r combine}
+intensity_calorie <- hourlyIntensities
+intensity_calorie <- intensity_calorie %>%
+  mutate(Calories = 0)
+intensity_calorie$Calories = hourlyCalories$Calories
+```
+
+### Part III: Data Analysis
+
+```{r plot1}
+ggplot(data = hourlyCalories) +
+  geom_point(mapping = aes(x = Hour, y = Calories)) +
+  ggtitle("Calories Burned through the Day")
+```
+
+Trend: Users more likely to burn more calories during the late morning and early afternoon. Users burn the least calories from 0-5 hour. There is also a drop in the calories burned at 15 hour.
+
+```{r plot2}
+ggplot(data = hourlyIntensities) + 
+  geom_point(mapping = aes(x = Hour, y = TotalIntensity)) +
+  ggtitle("Intensity Through the Day")
+```
+Trend: No obvious trend in data as currently presented. Would need to look further into the data to pull a conclusion from this chart.
+
+```{r plot3}
+ggplot(data = intensity_calorie) +
+  geom_point(mapping = aes(x = Calories, y = TotalIntensity)) + 
+  ggtitle("TotalIntensity vs. Calories")
+```
+Trend: As expected, the measurement of total intensity positively correlates with increases in the calories burned.
+
+```{r plot4}
+ggplot(data = dailyActivity) +
+  geom_point(mapping = aes(x = Calories, y = VeryActiveMinutes/TotalActivityMinutes)) +
+  ggtitle("Proportion of Very Active Minutes in day vs. Calories Burned")
+```
+Trend: When a user is more active during the day, the calories burned increases.
+
+
+### Part IV: Reflection & Thoughts
+
+This analysis was very simple and was a great way for me to practice basic RStudio programming skills for data analysis. 
+
+I am disappointed that the users were not as diverse. I classified a portion of the users based on BMI. However, all the individuals I classified belonged to the same classification. This prevented me from segmenting the data based on relative health of the user. I could have drawn more interesting trends from the data if I had more available data on the health of the users.
